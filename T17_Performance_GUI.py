@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import numpy as np
 from scipy.optimize import minimize_scalar
+from scipy.optimize import brentq
 from scipy.interpolate import interp1d
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
@@ -87,6 +88,9 @@ def isa_atmosphere(h_m, delta_T_isa=0.0):
     h_da  = (T0 / L) * (1.0 - (rho / rho0) ** ((R * L) / (g - R * L)))
     return T, p, rho, h_da
 
+def pa_from_da(h_da_m, delta_T_isa=0.0):
+    return brentq(lambda h_p: isa_atmosphere(h_p, delta_T_isa)[3] - h_da_m, 0.0, 11000.0)
+
 
 def eta_p_from_J(J, J_data=None, eta_data=None):
     if J_data is None:
@@ -99,18 +103,28 @@ def eta_p_at_speed(V_ms, n_rps, J_data=None, eta_data=None):
     return eta_p_from_J(V_ms / (n_rps * D), J_data, eta_data)
 
 
-def engine_power_avail_hp(P_rated_hp, h_m, turbocharged=True, h_crit_ft=17500,
-                          delta_T_isa=0.0):
+def engine_power_avail_hp(P_rated_hp, h_m, turbocharged=True, h_crit_ft=17500, delta_T_isa=0.0):
     rho = isa_atmosphere(h_m, delta_T_isa)[2]
+    h_da = isa_atmosphere(h_m, delta_T_isa)[3]
     if turbocharged:
-        h_crit   = h_crit_ft * ft_to_m
-        rho_crit = isa_atmosphere(h_crit, delta_T_isa)[2]
-        if h_m <= h_crit:
-            return P_rated_hp, 1.0
-        sigma = rho / rho_crit
-        return P_rated_hp * sigma, sigma
-    sigma = rho / rho0
-    return P_rated_hp * sigma, sigma
+        h_critical_m_DA = 17500 * ft_to_m 
+        h_critical_m_PA = pa_from_da(h_critical_m_DA, delta_T_isa)
+        rho_crit_PA = isa_atmosphere(h_critical_m_PA, delta_T_isa)[2]
+        if h_da <= h_critical_m_PA:
+            P_avail = P_rated_hp 
+            sigma = 1.0
+        else:
+            if h_da >= 11000:
+                rho_PA = isa_atmosphere(11000, delta_T_isa)[2]
+            else:
+                rho_PA = isa_atmosphere(h_da, delta_T_isa)[2]
+            sigma = rho_PA / rho_crit_PA
+            P_avail = P_rated_hp * sigma
+    else:
+        sigma = rho / rho0
+        P_avail = P_rated_hp * sigma
+
+    return P_avail, sigma
 
 
 def rpm_fra_pct(pct, rpm_pts: dict) -> int:
